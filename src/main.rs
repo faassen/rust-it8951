@@ -1,6 +1,8 @@
 use bincode::config::Options;
 use serde::{Deserialize, Serialize};
 
+mod usb;
+
 fn main() {
     println!("Hello, world!");
 }
