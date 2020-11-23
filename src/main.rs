@@ -65,9 +65,11 @@ struct SystemInfo {
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct InquiryResult {
+    ignore_start: [u8; 8],
     vendor: [u8; 8],
     product: [u8; 16],
     revision: [u8; 4],
+    ignore_end: [u8; 4],
 }
 
 #[repr(C)]
@@ -93,25 +95,15 @@ struct IT8951_display_area {
 const INQUIRY_CMD: [u8; 16] = [0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 fn inquiry(device_handle: &mut DeviceHandle<GlobalContext>) -> InquiryResult {
-    usb::send_mass_storage_command(
+    return usb::read_command(
         device_handle,
         ENDPOINT_OUT,
-        INQUIRY_CMD,
+        ENDPOINT_IN,
+        &INQUIRY_CMD,
         40,
-        usb::Direction::IN,
+        bincode::options(),
     )
-    .expect("Cannot send inquiry command");
-    // println!("inquiry size {}", size);
-    let mut buf: [u8; 40] = [0; 40];
-    device_handle
-        .read_bulk(ENDPOINT_IN, &mut buf, Duration::from_millis(1000))
-        .expect("failed to bulk read");
-    let result: InquiryResult = bincode::options()
-        .with_fixint_encoding()
-        .deserialize(&buf[8..36])
-        .unwrap();
-    usb::get_mass_storage_status(device_handle, ENDPOINT_IN);
-    return result;
+    .unwrap();
 }
 
 const GET_SYS_CMD: [u8; 16] = [
@@ -119,27 +111,15 @@ const GET_SYS_CMD: [u8; 16] = [
 ];
 
 fn get_sys(device_handle: &mut DeviceHandle<GlobalContext>) -> SystemInfo {
-    usb::send_mass_storage_command(
+    return usb::read_command(
         device_handle,
         ENDPOINT_OUT,
-        GET_SYS_CMD,
+        ENDPOINT_IN,
+        &GET_SYS_CMD,
         112,
-        usb::Direction::IN,
+        bincode::options().with_big_endian(),
     )
-    .expect("Cannot send get_sys command");
-    // println!("get_sys size {}", size);
-
-    let mut buf: [u8; 112] = [0; 112];
-    device_handle
-        .read_bulk(ENDPOINT_IN, &mut buf, Duration::from_millis(1000))
-        .expect("failed to bulk read get_sys");
-    let result: SystemInfo = bincode::options()
-        .with_big_endian()
-        .with_fixint_encoding()
-        .deserialize(&buf)
-        .unwrap();
-    usb::get_mass_storage_status(device_handle, ENDPOINT_IN);
-    return result;
+    .unwrap();
 }
 
 const LOAD_IMAGE_CMD: [u8; 16] = [

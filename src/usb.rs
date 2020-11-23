@@ -41,8 +41,58 @@ pub fn open_it8951() -> Option<DeviceHandle<GlobalContext>> {
     open_device_with_vid_pid(0x48d, 0x8951)
 }
 
+pub fn read_command<T: serde::de::DeserializeOwned, O: bincode::config::Options>(
+    device_handle: &mut DeviceHandle<GlobalContext>,
+    endpoint_out: u8,
+    endpoint_in: u8,
+    command: &[u8; 16],
+    length: usize,
+    bincode_options: O,
+) -> Result<T> {
+    // issue CBW block
+    let cbw_data = &get_mass_storage_command_data(command, length as u32, Direction::IN);
+    let cbw_result =
+        device_handle.write_bulk(endpoint_out, &cbw_data, Duration::from_millis(1000))?;
+
+    // now read the data
+    let mut buf: Vec<u8> = Vec::with_capacity(length);
+    buf.resize(length, 0);
+    let buf_result = device_handle.read_bulk(endpoint_in, &mut buf, Duration::from_millis(1000))?;
+
+    // issue CBS block
+    let mut csb_data: [u8; 13] = [0; 13];
+    loop {
+        match device_handle.read_bulk(endpoint_in, &mut csb_data, Duration::from_millis(1000)) {
+            Ok(_size) => {
+                break;
+            }
+            Err(error) => match error {
+                Error::Pipe => {
+                    device_handle.clear_halt(endpoint_in).unwrap();
+                    continue;
+                }
+                _ => {
+                    return Err(error);
+                }
+            },
+        }
+    }
+
+    // transform data into required data
+    let result: T = bincode_options
+        .with_fixint_encoding()
+        .deserialize(&buf)
+        .unwrap();
+    return Ok(result);
+}
+
+// read command
+// data to retrieve
+// get status
+// transform
+
 pub fn get_mass_storage_command_data(
-    command_data: [u8; 16],
+    command_data: &[u8; 16],
     data_transfer_length: u32,
     direction: Direction,
 ) -> Vec<u8> {
@@ -59,7 +109,7 @@ pub fn get_mass_storage_command_data(
         flags: flags,
         logical_unit_number: 0,
         command_length: 16,
-        command_data: command_data,
+        command_data: *command_data,
     };
     bincode::options()
         .with_little_endian()
@@ -75,7 +125,7 @@ pub fn send_mass_storage_command(
     data_transfer_length: u32,
     direction: Direction,
 ) -> Result<usize> {
-    let data = &get_mass_storage_command_data(command_data, data_transfer_length, direction);
+    let data = &get_mass_storage_command_data(&command_data, data_transfer_length, direction);
     println!(
         "data: {:?} len: {}, endpoint: {}",
         data,
@@ -122,7 +172,7 @@ mod tests {
     #[test]
     fn mass_storage_command_data() {
         let data = get_mass_storage_command_data(
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             18,
             Direction::OUT,
         );
@@ -135,7 +185,7 @@ mod tests {
         );
         // the second time the tag increases
         let data2 = get_mass_storage_command_data(
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             18,
             Direction::OUT,
         );
