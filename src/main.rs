@@ -38,6 +38,7 @@ fn main() {
     let sys_info = get_sys(&mut device_handle);
     println!("width: {}", sys_info.width);
     println!("height: {}", sys_info.height);
+    println!("mode: {}", sys_info.mode_no);
 
     device_handle.release_interface(0).expect("release failed");
     println!("End");
