@@ -1,6 +1,7 @@
 use bincode::config::Options;
 use rusb::{DeviceHandle, GlobalContext};
 use serde::{Deserialize, Serialize};
+use std::str;
 use std::time::Duration;
 
 mod usb;
@@ -12,7 +13,10 @@ fn main() {
         .set_auto_detach_kernel_driver(true)
         .expect("auto detached failed");
     device_handle.claim_interface(0).expect("claim failed");
-    inquiry(&device_handle);
+    let result = inquiry(&device_handle);
+    println!("vendor: {}", str::from_utf8(&result.vendor).unwrap());
+    println!("product: {}", str::from_utf8(&result.product).unwrap());
+    println!("revision: {}", str::from_utf8(&result.revision).unwrap());
     device_handle.release_interface(0).expect("release failed");
     println!("End");
 }
@@ -65,6 +69,8 @@ struct IT8951_display_area {
 
 const INQUIRY_CMD: [u8; 16] = [0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
+#[repr(C)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct InquiryResult {
     vendor: [u8; 8],
     product: [u8; 16],
@@ -82,7 +88,7 @@ fn inquiry(device_handle: &DeviceHandle<GlobalContext>) -> InquiryResult {
         device_handle,
         ENDPOINT_OUT,
         INQUIRY_CMD,
-        36,
+        40, // 36?
         usb::Direction::IN,
     )
     .expect("Cannot send inquiry command");
@@ -91,11 +97,12 @@ fn inquiry(device_handle: &DeviceHandle<GlobalContext>) -> InquiryResult {
         .read_bulk(ENDPOINT_IN, &mut buf, Duration::from_millis(1000))
         .expect("failed to bulk read");
     println!("size {}", size);
-    InquiryResult {
-        vendor: [0, 0, 0, 0, 0, 0, 0, 0],
-        product: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        revision: [0, 0, 0, 0],
-    }
+    println!("buf {:?}", buf);
+    let result: InquiryResult = bincode::options()
+        .with_fixint_encoding()
+        .deserialize(&buf[8..36])
+        .unwrap();
+    return result;
 }
 
 const LOAD_IMAGE_CMD: [u8; 16] = [
