@@ -1,7 +1,7 @@
 use bincode::config::Options;
 use rusb::{
     open_device_with_vid_pid, Context, Device, DeviceDescriptor, DeviceHandle,
-    Direction as UsbDirection, GlobalContext, Result, TransferType, UsbContext,
+    Direction as UsbDirection, Error, GlobalContext, Result, TransferType, UsbContext,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -26,7 +26,8 @@ struct CommandBlockWrapper {
 }
 
 #[repr(C)]
-struct CommandStatusWrapper {
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct CommandStatusWrapper {
     signature: [u8; 4],
     tag: u32,
     data_residue: u32,
@@ -36,6 +37,7 @@ struct CommandStatusWrapper {
 static TAG: AtomicU32 = AtomicU32::new(1);
 
 pub fn open_it8951() -> Option<DeviceHandle<GlobalContext>> {
+    // XXX this should be replaced by something not for debugging only
     open_device_with_vid_pid(0x48d, 0x8951)
 }
 
@@ -74,13 +76,43 @@ pub fn send_mass_storage_command(
     direction: Direction,
 ) -> Result<usize> {
     let data = &get_mass_storage_command_data(command_data, data_transfer_length, direction);
-    // println!(
-    //     "data: {:?} len: {}, endpoint: {}",
-    //     data,
-    //     data.len(),
-    //     endpoint
-    // );
-    return device_handle.write_bulk(endpoint, data, Duration::from_millis(1000));
+    println!(
+        "data: {:?} len: {}, endpoint: {}",
+        data,
+        data.len(),
+        endpoint
+    );
+    let result = device_handle.write_bulk(endpoint, data, Duration::from_millis(1000));
+    return result;
+}
+
+pub fn get_mass_storage_status(
+    device_handle: &mut DeviceHandle<GlobalContext>,
+    endpoint: u8,
+) -> CommandStatusWrapper {
+    let mut buf: [u8; 13] = [0; 13]; // [0x55, 0x53, 0x42, 0x53, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    loop {
+        match device_handle.read_bulk(endpoint, &mut buf, Duration::from_millis(1000)) {
+            Ok(_size) => {
+                break;
+            }
+            Err(error) => match error {
+                Error::Pipe => {
+                    device_handle.clear_halt(endpoint).unwrap();
+                    continue;
+                }
+                _ => {
+                    panic!("get_mass_storage_status: {:?}", error)
+                }
+            },
+        }
+    }
+    let result: CommandStatusWrapper = bincode::options()
+        .with_fixint_encoding()
+        .deserialize(&buf)
+        .unwrap();
+    return result;
 }
 
 #[cfg(test)]
