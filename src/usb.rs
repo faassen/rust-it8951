@@ -38,6 +38,7 @@ static TAG: AtomicU32 = AtomicU32::new(1);
 
 pub fn open_it8951() -> Option<DeviceHandle<GlobalContext>> {
     // XXX this should be replaced by something not for debugging only
+    // XXX but that should be is unclear to me
     open_device_with_vid_pid(0x48d, 0x8951)
 }
 
@@ -51,13 +52,12 @@ pub fn read_command<T: serde::de::DeserializeOwned, O: bincode::config::Options>
 ) -> Result<T> {
     // issue CBW block
     let cbw_data = &get_mass_storage_command_data(command, length as u32, Direction::IN);
-    let cbw_result =
-        device_handle.write_bulk(endpoint_out, &cbw_data, Duration::from_millis(1000))?;
+    device_handle.write_bulk(endpoint_out, &cbw_data, Duration::from_millis(1000))?;
 
     // now read the data
     let mut buf: Vec<u8> = Vec::with_capacity(length);
     buf.resize(length, 0);
-    let buf_result = device_handle.read_bulk(endpoint_in, &mut buf, Duration::from_millis(1000))?;
+    device_handle.read_bulk(endpoint_in, &mut buf, Duration::from_millis(1000))?;
 
     // issue CBS block
     let mut csb_data: [u8; 13] = [0; 13];
@@ -118,53 +118,6 @@ pub fn get_mass_storage_command_data(
         .unwrap()
 }
 
-pub fn send_mass_storage_command(
-    device_handle: &DeviceHandle<GlobalContext>,
-    endpoint: u8,
-    command_data: [u8; 16],
-    data_transfer_length: u32,
-    direction: Direction,
-) -> Result<usize> {
-    let data = &get_mass_storage_command_data(&command_data, data_transfer_length, direction);
-    println!(
-        "data: {:?} len: {}, endpoint: {}",
-        data,
-        data.len(),
-        endpoint
-    );
-    let result = device_handle.write_bulk(endpoint, data, Duration::from_millis(1000));
-    return result;
-}
-
-pub fn get_mass_storage_status(
-    device_handle: &mut DeviceHandle<GlobalContext>,
-    endpoint: u8,
-) -> CommandStatusWrapper {
-    let mut buf: [u8; 13] = [0; 13]; // [0x55, 0x53, 0x42, 0x53, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-    loop {
-        match device_handle.read_bulk(endpoint, &mut buf, Duration::from_millis(1000)) {
-            Ok(_size) => {
-                break;
-            }
-            Err(error) => match error {
-                Error::Pipe => {
-                    device_handle.clear_halt(endpoint).unwrap();
-                    continue;
-                }
-                _ => {
-                    panic!("get_mass_storage_status: {:?}", error)
-                }
-            },
-        }
-    }
-    let result: CommandStatusWrapper = bincode::options()
-        .with_fixint_encoding()
-        .deserialize(&buf)
-        .unwrap();
-    return result;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,7 +132,7 @@ mod tests {
         assert_eq!(
             data,
             [
-                85, 83, 66, 67, 0, 0, 0, 0, 18, 0, 0, 0, 0, 0, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+                85, 83, 66, 67, 1, 0, 0, 0, 18, 0, 0, 0, 0, 0, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
                 10, 11, 12, 13, 14, 15
             ]
         );
@@ -192,7 +145,7 @@ mod tests {
         assert_eq!(
             data2,
             [
-                85, 83, 66, 67, 1, 0, 0, 0, 18, 0, 0, 0, 0, 0, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+                85, 83, 66, 67, 2, 0, 0, 0, 18, 0, 0, 0, 0, 0, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
                 10, 11, 12, 13, 14, 15
             ]
         )
