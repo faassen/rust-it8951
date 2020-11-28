@@ -65,7 +65,7 @@ struct SystemInfo {
 
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct InquiryResult {
+struct Inquiry {
     ignore_start: [u8; 8],
     vendor: [u8; 8],
     product: [u8; 16],
@@ -95,7 +95,7 @@ struct IT8951_display_area {
 
 const INQUIRY_CMD: [u8; 16] = [0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-fn inquiry(device_handle: &mut DeviceHandle<GlobalContext>) -> InquiryResult {
+fn inquiry(device_handle: &mut DeviceHandle<GlobalContext>) -> Inquiry {
     return usb::read_command(
         device_handle,
         ENDPOINT_OUT,
@@ -123,15 +123,15 @@ fn get_sys(device_handle: &mut DeviceHandle<GlobalContext>) -> SystemInfo {
     .unwrap();
 }
 
-const LOAD_IMAGE_CMD: [u8; 16] = [
+const LD_IMAGE_AREA_CMD: [u8; 16] = [
     0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa2, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
-const DISPLAY_AREA_CMD: [u8; 16] = [
-    0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-];
+// const DISPLAY_AREA_CMD: [u8; 16] = [
+//     0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+// ];
 
-fn load_image_area(f: i32, addr: i32, x: i32, y: i32, w: i32, h: i32, data: &[u8]) {
+fn ld_image_area(f: i32, addr: i32, x: i32, y: i32, w: i32, h: i32, data: &[u8]) {
     let area = IT8951_area {
         address: addr, // note that this is assumed to be little endian
         x: x,
