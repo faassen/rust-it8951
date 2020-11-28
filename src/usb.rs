@@ -1,11 +1,9 @@
 use bincode::config::Options;
-use rusb::{
-    open_device_with_vid_pid, Context, Device, DeviceDescriptor, DeviceHandle,
-    Direction as UsbDirection, Error, GlobalContext, Result, TransferType, UsbContext,
-};
+use rusb::{open_device_with_vid_pid, DeviceHandle, Error, GlobalContext, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
+
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum Direction {
     IN,
