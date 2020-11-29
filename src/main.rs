@@ -1,5 +1,5 @@
 use bincode::config::Options;
-use rusb::{DeviceHandle, GlobalContext};
+use rusb::{DeviceHandle, GlobalContext, Result};
 use serde::{Deserialize, Serialize};
 use std::str;
 use std::thread;
@@ -12,6 +12,9 @@ mod usb;
 // endpoints.
 const ENDPOINT_IN: u8 = 0x81;
 const ENDPOINT_OUT: u8 = 0x02;
+
+// maximum transfer size is 60k bytes for IT8951 USB, substracting 20 bytes for area
+const MAX_TRANSFER: usize = 60 * 1024 - 20; // or 60800?
 
 fn main() {
     println!("Start");
@@ -75,12 +78,12 @@ struct Inquiry {
 
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct IT8951_area {
-    address: i32,
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
+struct Area {
+    address: u32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
 }
 #[repr(C)]
 struct IT8951_display_area {
@@ -131,19 +134,54 @@ const LD_IMAGE_AREA_CMD: [u8; 16] = [
 //     0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 // ];
 
-fn ld_image_area(f: i32, addr: i32, x: i32, y: i32, w: i32, h: i32, data: &[u8]) {
-    let area = IT8951_area {
-        address: addr, // note that this is assumed to be little endian
-        x: x,
-        y: y,
-        w: w,
-        h: h,
-    };
-    let length = w * h;
+fn ld_image_area(
+    device_handle: &mut DeviceHandle<GlobalContext>,
+    area: Area,
+    data: &[u8],
+) -> Result<()> {
+    return usb::write_command(
+        device_handle,
+        ENDPOINT_OUT,
+        ENDPOINT_IN,
+        &LD_IMAGE_AREA_CMD,
+        area,
+        data,
+        bincode::options(),
+    );
+}
 
-    let mut data_buffer: Vec<u8> = bincode::DefaultOptions::new()
-        .with_big_endian()
-        .serialize(&area)
-        .unwrap();
-    data_buffer.extend(data);
+struct Image<'a> {
+    data: &'a [u8],
+    w: u32,
+    h: u32,
+}
+
+fn update_region(
+    device_handle: &mut DeviceHandle<GlobalContext>,
+    info: &SystemInfo,
+    image: &Image,
+    x: u32,
+    y: u32,
+) -> Result<()> {
+    let w: usize = image.w as usize;
+    let h: usize = image.h as usize;
+    let size = w * h;
+
+    let mut i: usize = 0;
+    let mut row_height = MAX_TRANSFER / w;
+    while i < size {
+        if (i / w) + row_height > h {
+            row_height = h - (i / w);
+        }
+        let area = Area {
+            address: info.image_buffer_base,
+            x,
+            y: y + (i / w) as u32,
+            w: image.w,
+            h: row_height as u32,
+        };
+        ld_image_area(device_handle, area, &image.data[i..i + w * row_height])?;
+        i += row_height * w;
+    }
+    return Ok(());
 }

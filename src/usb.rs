@@ -84,10 +84,53 @@ pub fn read_command<T: serde::de::DeserializeOwned, O: bincode::config::Options>
     return Ok(result);
 }
 
-// read command
-// data to retrieve
-// get status
-// transform
+pub fn write_command<T: Serialize, O: bincode::config::Options>(
+    device_handle: &mut DeviceHandle<GlobalContext>,
+    endpoint_out: u8,
+    endpoint_in: u8,
+    command: &[u8; 16],
+    value: T,
+    data: &[u8],
+    bincode_options: O,
+) -> Result<()> {
+    // transform the value into data
+    let mut value_data: Vec<u8> = bincode_options
+        .with_fixint_encoding()
+        .with_big_endian()
+        .serialize(&value)
+        .unwrap();
+    let mut bulk_data: Vec<u8> = Vec::new();
+    bulk_data.append(&mut value_data);
+    bulk_data.extend_from_slice(data);
+
+    // issue CBW block
+    let cbw_data = &get_mass_storage_command_data(command, bulk_data.len() as u32, Direction::OUT);
+    device_handle.write_bulk(endpoint_out, &cbw_data, Duration::from_millis(1000))?;
+
+    // now write the data for the value
+    device_handle.write_bulk(endpoint_out, &bulk_data, Duration::from_millis(1000))?;
+
+    // issue CBS block
+    let mut csb_data: [u8; 13] = [0; 13];
+    loop {
+        match device_handle.read_bulk(endpoint_in, &mut csb_data, Duration::from_millis(1000)) {
+            Ok(_size) => {
+                break;
+            }
+            Err(error) => match error {
+                Error::Pipe => {
+                    device_handle.clear_halt(endpoint_in).unwrap();
+                    continue;
+                }
+                _ => {
+                    return Err(error);
+                }
+            },
+        }
+    }
+
+    return Ok(());
+}
 
 pub fn get_mass_storage_command_data(
     command_data: &[u8; 16],
