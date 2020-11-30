@@ -30,12 +30,6 @@ const DPY_AREA_CMD: [u8; 16] = [
     0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
-pub struct Image<'a> {
-    data: &'a [u8],
-    w: u32,
-    h: u32,
-}
-
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct SystemInfo {
@@ -131,13 +125,16 @@ impl<'a> It8951<'a> {
     pub fn update_region(
         &mut self,
         info: &SystemInfo,
-        image: &Image,
+        image: &image::DynamicImage,
         x: u32,
         y: u32,
         mode: u32,
     ) -> Result<()> {
-        let w: usize = image.w as usize;
-        let h: usize = image.h as usize;
+        let data = image.as_bytes();
+        let (width, height) = image.dimensions();
+
+        let w: usize = width as usize;
+        let h: usize = height as usize;
         let size = w * h;
 
         // we send the image in bands of MAX_TRANSFER
@@ -153,10 +150,10 @@ impl<'a> It8951<'a> {
                     address: info.image_buffer_base,
                     x,
                     y: y + (i / w) as u32,
-                    w: image.w,
+                    w: width,
                     h: row_height as u32,
                 },
-                &image.data[i..i + w * row_height],
+                &data[i..i + w * row_height],
             )?;
             i += row_height * w;
         }
@@ -165,8 +162,8 @@ impl<'a> It8951<'a> {
             display_mode: mode,
             x,
             y,
-            w: image.w,
-            h: image.h,
+            w: width,
+            h: height,
             wait_ready: 1,
         })?;
         return Ok(());
@@ -212,12 +209,11 @@ fn main() {
     println!("mode: {}", system_info.mode_no);
 
     println!("Display data");
-    let img = image::open("puppy.jpg").unwrap();
+    let img = image::open("kitten.jpg").unwrap();
     let grayscale_image = img.grayscale();
-    let data = grayscale_image.as_bytes();
-    let (w, h) = img.dimensions();
-    let image = Image { data, w, h };
-    it8951.update_region(&system_info, &image, 0, 0, 2).unwrap();
+    it8951
+        .update_region(&system_info, &grayscale_image, 0, 0, 2)
+        .unwrap();
     device_handle.release_interface(0).expect("release failed");
     println!("End");
 }
