@@ -42,19 +42,20 @@ pub fn read_command<T: serde::de::DeserializeOwned, O: bincode::config::Options>
     endpoint_in: u8,
     command: &[u8; 16],
     bincode_options: O,
+    timeout: Duration,
 ) -> Result<T> {
     let length = mem::size_of::<T>();
     // issue CBW block
     let cbw_data = &get_command_block_wrapper(command, length as u32, Direction::IN);
-    device_handle.write_bulk(endpoint_out, &cbw_data, Duration::from_millis(1000))?;
+    device_handle.write_bulk(endpoint_out, &cbw_data, timeout)?;
 
     // now read the data
     let mut buf: Vec<u8> = Vec::with_capacity(length);
     buf.resize(length, 0);
-    device_handle.read_bulk(endpoint_in, &mut buf, Duration::from_millis(1000))?;
+    device_handle.read_bulk(endpoint_in, &mut buf, timeout)?;
 
     // issue CBS block
-    send_status_block_wrapper(device_handle, endpoint_in)?;
+    send_status_block_wrapper(device_handle, endpoint_in, timeout)?;
 
     // transform data into required data
     let result: T = bincode_options
@@ -72,6 +73,7 @@ pub fn write_command<T: Serialize, O: bincode::config::Options>(
     value: T,
     data: &[u8],
     bincode_options: O,
+    timeout: Duration,
 ) -> Result<()> {
     // transform the value into data
     let mut value_data: Vec<u8> = bincode_options
@@ -86,13 +88,13 @@ pub fn write_command<T: Serialize, O: bincode::config::Options>(
 
     // issue CBW block
     let cbw_data = &get_command_block_wrapper(command, bulk_data.len() as u32, Direction::OUT);
-    device_handle.write_bulk(endpoint_out, &cbw_data, Duration::from_millis(1000))?;
+    device_handle.write_bulk(endpoint_out, &cbw_data, timeout)?;
 
     // now write the data for the value
-    device_handle.write_bulk(endpoint_out, &bulk_data, Duration::from_millis(1000))?;
+    device_handle.write_bulk(endpoint_out, &bulk_data, timeout)?;
 
     // issue CBS block
-    send_status_block_wrapper(device_handle, endpoint_in)?;
+    send_status_block_wrapper(device_handle, endpoint_in, timeout)?;
 
     return Ok(());
 }
@@ -100,10 +102,11 @@ pub fn write_command<T: Serialize, O: bincode::config::Options>(
 pub fn send_status_block_wrapper(
     device_handle: &mut DeviceHandle<GlobalContext>,
     endpoint_in: u8,
+    timeout: Duration,
 ) -> Result<CommandStatusWrapper> {
     let mut csb_data: [u8; 13] = [0; 13];
     loop {
-        match device_handle.read_bulk(endpoint_in, &mut csb_data, Duration::from_millis(1000)) {
+        match device_handle.read_bulk(endpoint_in, &mut csb_data, timeout) {
             Ok(_size) => {
                 return Ok(bincode::options()
                     .with_fixint_encoding()

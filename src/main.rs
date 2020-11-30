@@ -20,13 +20,14 @@ const ENDPOINT_OUT: u8 = 0x02;
 const MAX_TRANSFER: usize = 60 * 1024;
 
 fn main() {
+    let timeout = Duration::from_millis(1000);
     println!("Start");
     let mut device_handle = open_it8951().expect("Cannot open it8951");
     device_handle
         .set_auto_detach_kernel_driver(true)
         .expect("auto detached failed");
     device_handle.claim_interface(0).expect("claim failed");
-    let inquiry_result = inquiry(&mut device_handle);
+    let inquiry_result = inquiry(&mut device_handle, timeout);
     println!(
         "vendor: {}",
         str::from_utf8(&inquiry_result.vendor).unwrap()
@@ -41,7 +42,7 @@ fn main() {
     );
     thread::sleep(Duration::from_millis(100));
     println!("We are now reading data");
-    let system_info = get_sys(&mut device_handle);
+    let system_info = get_sys(&mut device_handle, timeout);
     println!("width: {}", system_info.width);
     println!("height: {}", system_info.height);
     println!("mode: {}", system_info.mode_no);
@@ -52,7 +53,7 @@ fn main() {
     let data = grayscale_image.as_bytes();
     let (w, h) = img.dimensions();
     let image = Image { data, w, h };
-    update_region(&mut device_handle, &system_info, &image, 0, 0, 2).unwrap();
+    update_region(&mut device_handle, &system_info, &image, 0, 0, 2, timeout).unwrap();
     device_handle.release_interface(0).expect("release failed");
     println!("End");
 }
@@ -115,13 +116,14 @@ pub fn open_it8951() -> Option<DeviceHandle<GlobalContext>> {
 
 const INQUIRY_CMD: [u8; 16] = [0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-fn inquiry(device_handle: &mut DeviceHandle<GlobalContext>) -> Inquiry {
+fn inquiry(device_handle: &mut DeviceHandle<GlobalContext>, timeout: Duration) -> Inquiry {
     return usb::read_command(
         device_handle,
         ENDPOINT_OUT,
         ENDPOINT_IN,
         &INQUIRY_CMD,
         bincode::options(),
+        timeout,
     )
     .unwrap();
 }
@@ -130,13 +132,14 @@ const GET_SYS_CMD: [u8; 16] = [
     0xfe, 0, 0x38, 0x39, 0x35, 0x31, 0x80, 0, 0x01, 0, 0x02, 0, 0, 0, 0, 0,
 ];
 
-fn get_sys(device_handle: &mut DeviceHandle<GlobalContext>) -> SystemInfo {
+fn get_sys(device_handle: &mut DeviceHandle<GlobalContext>, timeout: Duration) -> SystemInfo {
     return usb::read_command(
         device_handle,
         ENDPOINT_OUT,
         ENDPOINT_IN,
         &GET_SYS_CMD,
         bincode::options().with_big_endian(),
+        timeout,
     )
     .unwrap();
 }
@@ -149,6 +152,7 @@ fn ld_image_area(
     device_handle: &mut DeviceHandle<GlobalContext>,
     area: Area,
     data: &[u8],
+    timeout: Duration,
 ) -> Result<()> {
     return usb::write_command(
         device_handle,
@@ -158,6 +162,7 @@ fn ld_image_area(
         area,
         data,
         bincode::options(),
+        timeout,
     );
 }
 
@@ -168,6 +173,7 @@ const DPY_AREA_CMD: [u8; 16] = [
 fn dpy_area(
     device_handle: &mut DeviceHandle<GlobalContext>,
     display_area: DisplayArea,
+    timeout: Duration,
 ) -> Result<()> {
     return usb::write_command(
         device_handle,
@@ -177,6 +183,7 @@ fn dpy_area(
         display_area,
         &[],
         bincode::options(),
+        timeout,
     );
 }
 
@@ -193,6 +200,7 @@ fn update_region(
     x: u32,
     y: u32,
     mode: u32,
+    timeout: Duration,
 ) -> Result<()> {
     let w: usize = image.w as usize;
     let h: usize = image.h as usize;
@@ -216,6 +224,7 @@ fn update_region(
                 h: row_height as u32,
             },
             &image.data[i..i + w * row_height],
+            timeout,
         )?;
         i += row_height * w;
     }
@@ -230,6 +239,7 @@ fn update_region(
             h: image.h,
             wait_ready: 1,
         },
+        timeout,
     )?;
     return Ok(());
 }
