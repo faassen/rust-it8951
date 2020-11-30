@@ -44,7 +44,7 @@ pub fn read_command<T: serde::de::DeserializeOwned, O: bincode::config::Options>
     bincode_options: O,
 ) -> Result<T> {
     // issue CBW block
-    let cbw_data = &get_mass_storage_command_data(command, length as u32, Direction::IN);
+    let cbw_data = &get_command_block_wrapper(command, length as u32, Direction::IN);
     device_handle.write_bulk(endpoint_out, &cbw_data, Duration::from_millis(1000))?;
 
     // now read the data
@@ -53,23 +53,7 @@ pub fn read_command<T: serde::de::DeserializeOwned, O: bincode::config::Options>
     device_handle.read_bulk(endpoint_in, &mut buf, Duration::from_millis(1000))?;
 
     // issue CBS block
-    let mut csb_data: [u8; 13] = [0; 13];
-    loop {
-        match device_handle.read_bulk(endpoint_in, &mut csb_data, Duration::from_millis(1000)) {
-            Ok(_size) => {
-                break;
-            }
-            Err(error) => match error {
-                Error::Pipe => {
-                    device_handle.clear_halt(endpoint_in).unwrap();
-                    continue;
-                }
-                _ => {
-                    return Err(error);
-                }
-            },
-        }
-    }
+    send_status_block_wrapper(device_handle, endpoint_in)?;
 
     // transform data into required data
     let result: T = bincode_options
@@ -100,18 +84,30 @@ pub fn write_command<T: Serialize, O: bincode::config::Options>(
     bulk_data.extend_from_slice(data);
 
     // issue CBW block
-    let cbw_data = &get_mass_storage_command_data(command, bulk_data.len() as u32, Direction::OUT);
+    let cbw_data = &get_command_block_wrapper(command, bulk_data.len() as u32, Direction::OUT);
     device_handle.write_bulk(endpoint_out, &cbw_data, Duration::from_millis(1000))?;
 
     // now write the data for the value
     device_handle.write_bulk(endpoint_out, &bulk_data, Duration::from_millis(1000))?;
 
     // issue CBS block
+    send_status_block_wrapper(device_handle, endpoint_in)?;
+
+    return Ok(());
+}
+
+pub fn send_status_block_wrapper(
+    device_handle: &mut DeviceHandle<GlobalContext>,
+    endpoint_in: u8,
+) -> Result<CommandStatusWrapper> {
     let mut csb_data: [u8; 13] = [0; 13];
     loop {
         match device_handle.read_bulk(endpoint_in, &mut csb_data, Duration::from_millis(1000)) {
             Ok(_size) => {
-                break;
+                return Ok(bincode::options()
+                    .with_fixint_encoding()
+                    .deserialize::<CommandStatusWrapper>(&csb_data)
+                    .unwrap());
             }
             Err(error) => match error {
                 Error::Pipe => {
@@ -124,11 +120,9 @@ pub fn write_command<T: Serialize, O: bincode::config::Options>(
             },
         }
     }
-
-    return Ok(());
 }
 
-pub fn get_mass_storage_command_data(
+pub fn get_command_block_wrapper(
     command_data: &[u8; 16],
     data_transfer_length: u32,
     direction: Direction,
@@ -160,7 +154,7 @@ mod tests {
 
     #[test]
     fn mass_storage_command_data() {
-        let data = get_mass_storage_command_data(
+        let data = get_command_block_wrapper(
             &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             18,
             Direction::OUT,
@@ -173,7 +167,7 @@ mod tests {
             ]
         );
         // the second time the tag increases
-        let data2 = get_mass_storage_command_data(
+        let data2 = get_command_block_wrapper(
             &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             18,
             Direction::OUT,

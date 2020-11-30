@@ -17,7 +17,7 @@ const ENDPOINT_IN: u8 = 0x81;
 const ENDPOINT_OUT: u8 = 0x02;
 
 // maximum transfer size is 60k bytes for IT8951 USB
-const MAX_TRANSFER: usize = 60 * 1024; // or 60800?
+const MAX_TRANSFER: usize = 60 * 1024;
 
 fn main() {
     println!("Start");
