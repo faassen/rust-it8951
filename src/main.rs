@@ -121,7 +121,6 @@ fn inquiry(device_handle: &mut DeviceHandle<GlobalContext>) -> Inquiry {
         ENDPOINT_OUT,
         ENDPOINT_IN,
         &INQUIRY_CMD,
-        40,
         bincode::options(),
     )
     .unwrap();
@@ -137,7 +136,6 @@ fn get_sys(device_handle: &mut DeviceHandle<GlobalContext>) -> SystemInfo {
         ENDPOINT_OUT,
         ENDPOINT_IN,
         &GET_SYS_CMD,
-        112,
         bincode::options().with_big_endian(),
     )
     .unwrap();

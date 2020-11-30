@@ -1,6 +1,7 @@
 use bincode::config::Options;
 use rusb::{DeviceHandle, Error, GlobalContext, Result};
 use serde::{Deserialize, Serialize};
+use std::mem;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
@@ -40,9 +41,9 @@ pub fn read_command<T: serde::de::DeserializeOwned, O: bincode::config::Options>
     endpoint_out: u8,
     endpoint_in: u8,
     command: &[u8; 16],
-    length: usize,
     bincode_options: O,
 ) -> Result<T> {
+    let length = mem::size_of::<T>();
     // issue CBW block
     let cbw_data = &get_command_block_wrapper(command, length as u32, Direction::IN);
     device_handle.write_bulk(endpoint_out, &cbw_data, Duration::from_millis(1000))?;
