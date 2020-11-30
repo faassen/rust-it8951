@@ -1,5 +1,6 @@
 use bincode::config::Options;
 use image::GenericImageView;
+use rusb::open_device_with_vid_pid;
 use rusb::{DeviceHandle, GlobalContext, Result};
 use serde::{Deserialize, Serialize};
 use std::mem;
@@ -20,7 +21,7 @@ const MAX_TRANSFER: usize = 60 * 1024; // or 60800?
 
 fn main() {
     println!("Start");
-    let mut device_handle = usb::open_it8951().expect("Cannot open it8951");
+    let mut device_handle = open_it8951().expect("Cannot open it8951");
     device_handle
         .set_auto_detach_kernel_driver(true)
         .expect("auto detached failed");
@@ -104,6 +105,12 @@ struct DisplayArea {
     w: u32,
     h: u32,
     wait_ready: u32,
+}
+
+pub fn open_it8951() -> Option<DeviceHandle<GlobalContext>> {
+    // XXX this should be replaced by something not for debugging only
+    // XXX but that should be is unclear to me
+    open_device_with_vid_pid(0x48d, 0x8951)
 }
 
 const INQUIRY_CMD: [u8; 16] = [0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];

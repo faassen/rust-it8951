@@ -1,14 +1,15 @@
 use bincode::config::Options;
-use rusb::{open_device_with_vid_pid, DeviceHandle, Error, GlobalContext, Result};
+use rusb::{DeviceHandle, Error, GlobalContext, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
+
+// this implements sending SCSI commands over USB
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum Direction {
     IN,
     OUT,
-    NONE,
 }
 
 #[repr(C)]
@@ -33,12 +34,6 @@ pub struct CommandStatusWrapper {
 }
 
 static TAG: AtomicU32 = AtomicU32::new(1);
-
-pub fn open_it8951() -> Option<DeviceHandle<GlobalContext>> {
-    // XXX this should be replaced by something not for debugging only
-    // XXX but that should be is unclear to me
-    open_device_with_vid_pid(0x48d, 0x8951)
-}
 
 pub fn read_command<T: serde::de::DeserializeOwned, O: bincode::config::Options>(
     device_handle: &mut DeviceHandle<GlobalContext>,
@@ -141,7 +136,6 @@ pub fn get_mass_storage_command_data(
     let flags: u8 = match direction {
         Direction::IN => 0x80,
         Direction::OUT => 0x00,
-        Direction::NONE => 0x00,
     };
     let tag = TAG.fetch_add(1, Ordering::SeqCst);
     let cwb = CommandBlockWrapper {
