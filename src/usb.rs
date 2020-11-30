@@ -99,6 +99,7 @@ pub fn write_command<T: Serialize, O: bincode::config::Options>(
         .with_big_endian()
         .serialize(&value)
         .unwrap();
+    // combine this with any additional data
     let mut bulk_data: Vec<u8> = Vec::new();
     bulk_data.append(&mut value_data);
     bulk_data.extend_from_slice(data);

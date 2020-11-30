@@ -1,6 +1,8 @@
 use bincode::config::Options;
+use image::GenericImageView;
 use rusb::{DeviceHandle, GlobalContext, Result};
 use serde::{Deserialize, Serialize};
+use std::mem;
 use std::str;
 use std::thread;
 use std::time::Duration;
@@ -13,8 +15,8 @@ mod usb;
 const ENDPOINT_IN: u8 = 0x81;
 const ENDPOINT_OUT: u8 = 0x02;
 
-// maximum transfer size is 60k bytes for IT8951 USB, substracting 20 bytes for area
-const MAX_TRANSFER: usize = 60 * 1024 - 20; // or 60800?
+// maximum transfer size is 60k bytes for IT8951 USB
+const MAX_TRANSFER: usize = 60 * 1024; // or 60800?
 
 fn main() {
     println!("Start");
@@ -38,11 +40,18 @@ fn main() {
     );
     thread::sleep(Duration::from_millis(100));
     println!("We are now reading data");
-    let sys_info = get_sys(&mut device_handle);
-    println!("width: {}", sys_info.width);
-    println!("height: {}", sys_info.height);
-    println!("mode: {}", sys_info.mode_no);
+    let system_info = get_sys(&mut device_handle);
+    println!("width: {}", system_info.width);
+    println!("height: {}", system_info.height);
+    println!("mode: {}", system_info.mode_no);
 
+    println!("Display data");
+    let img = image::open("cat.jpg").unwrap();
+    let grayscale_image = img.grayscale();
+    let data = grayscale_image.as_bytes();
+    let (w, h) = img.dimensions();
+    let image = Image { data, w, h };
+    update_region(&mut device_handle, &system_info, &image, 0, 0, 2).unwrap();
     device_handle.release_interface(0).expect("release failed");
     println!("End");
 }
@@ -86,14 +95,15 @@ struct Area {
     h: u32,
 }
 #[repr(C)]
-struct IT8951_display_area {
-    address: i32,
-    wavemode: i32,
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-    wait_ready: i32,
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct DisplayArea {
+    address: u32,
+    display_mode: u32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    wait_ready: u32,
 }
 
 const INQUIRY_CMD: [u8; 16] = [0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -130,10 +140,6 @@ const LD_IMAGE_AREA_CMD: [u8; 16] = [
     0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa2, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
-// const DISPLAY_AREA_CMD: [u8; 16] = [
-//     0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-// ];
-
 fn ld_image_area(
     device_handle: &mut DeviceHandle<GlobalContext>,
     area: Area,
@@ -150,6 +156,25 @@ fn ld_image_area(
     );
 }
 
+const DPY_AREA_CMD: [u8; 16] = [
+    0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
+
+fn dpy_area(
+    device_handle: &mut DeviceHandle<GlobalContext>,
+    display_area: DisplayArea,
+) -> Result<()> {
+    return usb::write_command(
+        device_handle,
+        ENDPOINT_OUT,
+        ENDPOINT_IN,
+        &DPY_AREA_CMD,
+        display_area,
+        &[],
+        bincode::options(),
+    );
+}
+
 struct Image<'a> {
     data: &'a [u8],
     w: u32,
@@ -162,26 +187,44 @@ fn update_region(
     image: &Image,
     x: u32,
     y: u32,
+    mode: u32,
 ) -> Result<()> {
     let w: usize = image.w as usize;
     let h: usize = image.h as usize;
     let size = w * h;
 
+    // we send the image in bands of MAX_TRANSFER
     let mut i: usize = 0;
-    let mut row_height = MAX_TRANSFER / w;
+    let mut row_height = (MAX_TRANSFER - mem::size_of::<Area>()) / w;
     while i < size {
+        // we don't want to go beyond the end with the last band
         if (i / w) + row_height > h {
             row_height = h - (i / w);
         }
-        let area = Area {
-            address: info.image_buffer_base,
-            x,
-            y: y + (i / w) as u32,
-            w: image.w,
-            h: row_height as u32,
-        };
-        ld_image_area(device_handle, area, &image.data[i..i + w * row_height])?;
+        ld_image_area(
+            device_handle,
+            Area {
+                address: info.image_buffer_base,
+                x,
+                y: y + (i / w) as u32,
+                w: image.w,
+                h: row_height as u32,
+            },
+            &image.data[i..i + w * row_height],
+        )?;
         i += row_height * w;
     }
+    dpy_area(
+        device_handle,
+        DisplayArea {
+            address: info.image_buffer_base,
+            display_mode: mode,
+            x,
+            y,
+            w: image.w,
+            h: image.h,
+            wait_ready: 1,
+        },
+    )?;
     return Ok(());
 }
