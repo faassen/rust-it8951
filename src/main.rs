@@ -19,48 +19,26 @@ const ENDPOINT_OUT: u8 = 0x02;
 // maximum transfer size is 60k bytes for IT8951 USB
 const MAX_TRANSFER: usize = 60 * 1024;
 
-fn main() {
-    let timeout = Duration::from_millis(1000);
-    println!("Start");
-    let mut device_handle = open_it8951().expect("Cannot open it8951");
-    device_handle
-        .set_auto_detach_kernel_driver(true)
-        .expect("auto detached failed");
-    device_handle.claim_interface(0).expect("claim failed");
-    let inquiry_result = inquiry(&mut device_handle, timeout);
-    println!(
-        "vendor: {}",
-        str::from_utf8(&inquiry_result.vendor).unwrap()
-    );
-    println!(
-        "product: {}",
-        str::from_utf8(&inquiry_result.product).unwrap()
-    );
-    println!(
-        "revision: {}",
-        str::from_utf8(&inquiry_result.revision).unwrap()
-    );
-    thread::sleep(Duration::from_millis(100));
-    println!("We are now reading data");
-    let system_info = get_sys(&mut device_handle, timeout);
-    println!("width: {}", system_info.width);
-    println!("height: {}", system_info.height);
-    println!("mode: {}", system_info.mode_no);
+const INQUIRY_CMD: [u8; 16] = [0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+const GET_SYS_CMD: [u8; 16] = [
+    0xfe, 0, 0x38, 0x39, 0x35, 0x31, 0x80, 0, 0x01, 0, 0x02, 0, 0, 0, 0, 0,
+];
+const LD_IMAGE_AREA_CMD: [u8; 16] = [
+    0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa2, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
+const DPY_AREA_CMD: [u8; 16] = [
+    0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
 
-    println!("Display data");
-    let img = image::open("cat.jpg").unwrap();
-    let grayscale_image = img.grayscale();
-    let data = grayscale_image.as_bytes();
-    let (w, h) = img.dimensions();
-    let image = Image { data, w, h };
-    update_region(&mut device_handle, &system_info, &image, 0, 0, 2, timeout).unwrap();
-    device_handle.release_interface(0).expect("release failed");
-    println!("End");
+pub struct Image<'a> {
+    data: &'a [u8],
+    w: u32,
+    h: u32,
 }
 
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct SystemInfo {
+pub struct SystemInfo {
     standard_cmd_no: u32,
     extended_cmd_no: u32,
     signature: u32,
@@ -79,7 +57,7 @@ struct SystemInfo {
 
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct Inquiry {
+pub struct Inquiry {
     ignore_start: [u8; 8],
     vendor: [u8; 8],
     product: [u8; 16],
@@ -89,16 +67,17 @@ struct Inquiry {
 
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct Area {
+pub struct Area {
     address: u32,
     x: u32,
     y: u32,
     w: u32,
     h: u32,
 }
+
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-struct DisplayArea {
+pub struct DisplayArea {
     address: u32,
     display_mode: u32,
     x: u32,
@@ -114,123 +93,74 @@ pub fn open_it8951() -> Option<DeviceHandle<GlobalContext>> {
     open_device_with_vid_pid(0x48d, 0x8951)
 }
 
-const INQUIRY_CMD: [u8; 16] = [0x12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-fn inquiry(device_handle: &mut DeviceHandle<GlobalContext>, timeout: Duration) -> Inquiry {
-    return usb::read_command(
-        device_handle,
-        ENDPOINT_OUT,
-        ENDPOINT_IN,
-        &INQUIRY_CMD,
-        bincode::options(),
-        timeout,
-    )
-    .unwrap();
+pub struct It8951<'a> {
+    connection: usb::ScsiOverUsbConnection<'a>,
 }
 
-const GET_SYS_CMD: [u8; 16] = [
-    0xfe, 0, 0x38, 0x39, 0x35, 0x31, 0x80, 0, 0x01, 0, 0x02, 0, 0, 0, 0, 0,
-];
-
-fn get_sys(device_handle: &mut DeviceHandle<GlobalContext>, timeout: Duration) -> SystemInfo {
-    return usb::read_command(
-        device_handle,
-        ENDPOINT_OUT,
-        ENDPOINT_IN,
-        &GET_SYS_CMD,
-        bincode::options().with_big_endian(),
-        timeout,
-    )
-    .unwrap();
-}
-
-const LD_IMAGE_AREA_CMD: [u8; 16] = [
-    0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa2, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-];
-
-fn ld_image_area(
-    device_handle: &mut DeviceHandle<GlobalContext>,
-    area: Area,
-    data: &[u8],
-    timeout: Duration,
-) -> Result<()> {
-    return usb::write_command(
-        device_handle,
-        ENDPOINT_OUT,
-        ENDPOINT_IN,
-        &LD_IMAGE_AREA_CMD,
-        area,
-        data,
-        bincode::options(),
-        timeout,
-    );
-}
-
-const DPY_AREA_CMD: [u8; 16] = [
-    0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-];
-
-fn dpy_area(
-    device_handle: &mut DeviceHandle<GlobalContext>,
-    display_area: DisplayArea,
-    timeout: Duration,
-) -> Result<()> {
-    return usb::write_command(
-        device_handle,
-        ENDPOINT_OUT,
-        ENDPOINT_IN,
-        &DPY_AREA_CMD,
-        display_area,
-        &[],
-        bincode::options(),
-        timeout,
-    );
-}
-
-struct Image<'a> {
-    data: &'a [u8],
-    w: u32,
-    h: u32,
-}
-
-fn update_region(
-    device_handle: &mut DeviceHandle<GlobalContext>,
-    info: &SystemInfo,
-    image: &Image,
-    x: u32,
-    y: u32,
-    mode: u32,
-    timeout: Duration,
-) -> Result<()> {
-    let w: usize = image.w as usize;
-    let h: usize = image.h as usize;
-    let size = w * h;
-
-    // we send the image in bands of MAX_TRANSFER
-    let mut i: usize = 0;
-    let mut row_height = (MAX_TRANSFER - mem::size_of::<Area>()) / w;
-    while i < size {
-        // we don't want to go beyond the end with the last band
-        if (i / w) + row_height > h {
-            row_height = h - (i / w);
-        }
-        ld_image_area(
-            device_handle,
-            Area {
-                address: info.image_buffer_base,
-                x,
-                y: y + (i / w) as u32,
-                w: image.w,
-                h: row_height as u32,
-            },
-            &image.data[i..i + w * row_height],
-            timeout,
-        )?;
-        i += row_height * w;
+impl<'a> It8951<'a> {
+    pub fn inquiry(&mut self) -> Result<Inquiry> {
+        return self
+            .connection
+            .read_command(&INQUIRY_CMD, bincode::options());
     }
-    dpy_area(
-        device_handle,
-        DisplayArea {
+
+    pub fn get_sys(&mut self) -> Result<SystemInfo> {
+        return self
+            .connection
+            .read_command(&GET_SYS_CMD, bincode::options().with_big_endian());
+    }
+
+    pub fn ld_image_area(&mut self, area: Area, data: &[u8]) -> Result<()> {
+        return self.connection.write_command(
+            &LD_IMAGE_AREA_CMD,
+            area,
+            data,
+            bincode::options().with_big_endian(),
+        );
+    }
+
+    pub fn dpy_area(&mut self, display_area: DisplayArea) -> Result<()> {
+        return self.connection.write_command(
+            &DPY_AREA_CMD,
+            display_area,
+            &[],
+            bincode::options().with_big_endian(),
+        );
+    }
+
+    pub fn update_region(
+        &mut self,
+        info: &SystemInfo,
+        image: &Image,
+        x: u32,
+        y: u32,
+        mode: u32,
+    ) -> Result<()> {
+        let w: usize = image.w as usize;
+        let h: usize = image.h as usize;
+        let size = w * h;
+
+        // we send the image in bands of MAX_TRANSFER
+        let mut i: usize = 0;
+        let mut row_height = (MAX_TRANSFER - mem::size_of::<Area>()) / w;
+        while i < size {
+            // we don't want to go beyond the end with the last band
+            if (i / w) + row_height > h {
+                row_height = h - (i / w);
+            }
+            self.ld_image_area(
+                Area {
+                    address: info.image_buffer_base,
+                    x,
+                    y: y + (i / w) as u32,
+                    w: image.w,
+                    h: row_height as u32,
+                },
+                &image.data[i..i + w * row_height],
+            )?;
+            i += row_height * w;
+        }
+        self.dpy_area(DisplayArea {
             address: info.image_buffer_base,
             display_mode: mode,
             x,
@@ -238,8 +168,56 @@ fn update_region(
             w: image.w,
             h: image.h,
             wait_ready: 1,
+        })?;
+        return Ok(());
+    }
+}
+
+fn main() {
+    let timeout = Duration::from_millis(1000);
+    println!("Start");
+    let mut device_handle = open_it8951().expect("Cannot open it8951");
+    device_handle
+        .set_auto_detach_kernel_driver(true)
+        .expect("auto detached failed");
+    device_handle.claim_interface(0).expect("claim failed");
+
+    let mut it8951 = It8951 {
+        connection: usb::ScsiOverUsbConnection {
+            device_handle: &mut device_handle,
+            endpoint_out: ENDPOINT_OUT,
+            endpoint_in: ENDPOINT_IN,
+            timeout: timeout,
         },
-        timeout,
-    )?;
-    return Ok(());
+    };
+
+    let inquiry_result = it8951.inquiry().unwrap();
+    println!(
+        "vendor: {}",
+        str::from_utf8(&inquiry_result.vendor).unwrap()
+    );
+    println!(
+        "product: {}",
+        str::from_utf8(&inquiry_result.product).unwrap()
+    );
+    println!(
+        "revision: {}",
+        str::from_utf8(&inquiry_result.revision).unwrap()
+    );
+    thread::sleep(Duration::from_millis(100));
+    println!("We are now reading data");
+    let system_info = it8951.get_sys().unwrap();
+    println!("width: {}", system_info.width);
+    println!("height: {}", system_info.height);
+    println!("mode: {}", system_info.mode_no);
+
+    println!("Display data");
+    let img = image::open("puppy.jpg").unwrap();
+    let grayscale_image = img.grayscale();
+    let data = grayscale_image.as_bytes();
+    let (w, h) = img.dimensions();
+    let image = Image { data, w, h };
+    it8951.update_region(&system_info, &image, 0, 0, 2).unwrap();
+    device_handle.release_interface(0).expect("release failed");
+    println!("End");
 }

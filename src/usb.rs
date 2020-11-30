@@ -36,92 +36,97 @@ pub struct CommandStatusWrapper {
 
 static TAG: AtomicU32 = AtomicU32::new(1);
 
-pub fn read_command<T: serde::de::DeserializeOwned, O: bincode::config::Options>(
-    device_handle: &mut DeviceHandle<GlobalContext>,
-    endpoint_out: u8,
-    endpoint_in: u8,
-    command: &[u8; 16],
-    bincode_options: O,
-    timeout: Duration,
-) -> Result<T> {
-    let length = mem::size_of::<T>();
-    // issue CBW block
-    let cbw_data = &get_command_block_wrapper(command, length as u32, Direction::IN);
-    device_handle.write_bulk(endpoint_out, &cbw_data, timeout)?;
-
-    // now read the data
-    let mut buf: Vec<u8> = Vec::with_capacity(length);
-    buf.resize(length, 0);
-    device_handle.read_bulk(endpoint_in, &mut buf, timeout)?;
-
-    // issue CBS block
-    send_status_block_wrapper(device_handle, endpoint_in, timeout)?;
-
-    // transform data into required data
-    let result: T = bincode_options
-        .with_fixint_encoding()
-        .deserialize(&buf)
-        .unwrap();
-    return Ok(result);
+pub struct ScsiOverUsbConnection<'a> {
+    pub device_handle: &'a mut DeviceHandle<GlobalContext>,
+    pub endpoint_out: u8,
+    pub endpoint_in: u8,
+    pub timeout: Duration,
 }
 
-pub fn write_command<T: Serialize, O: bincode::config::Options>(
-    device_handle: &mut DeviceHandle<GlobalContext>,
-    endpoint_out: u8,
-    endpoint_in: u8,
-    command: &[u8; 16],
-    value: T,
-    data: &[u8],
-    bincode_options: O,
-    timeout: Duration,
-) -> Result<()> {
-    // transform the value into data
-    let mut value_data: Vec<u8> = bincode_options
-        .with_fixint_encoding()
-        .with_big_endian()
-        .serialize(&value)
-        .unwrap();
-    // combine this with any additional data
-    let mut bulk_data: Vec<u8> = Vec::new();
-    bulk_data.append(&mut value_data);
-    bulk_data.extend_from_slice(data);
+impl<'a> ScsiOverUsbConnection<'a> {
+    pub fn read_command<T: serde::de::DeserializeOwned, O: bincode::config::Options>(
+        &mut self,
+        command: &[u8; 16],
+        bincode_options: O,
+    ) -> Result<T> {
+        let length = mem::size_of::<T>();
+        // issue CBW block
+        let cbw_data = &get_command_block_wrapper(command, length as u32, Direction::IN);
+        self.device_handle
+            .write_bulk(self.endpoint_out, &cbw_data, self.timeout)?;
 
-    // issue CBW block
-    let cbw_data = &get_command_block_wrapper(command, bulk_data.len() as u32, Direction::OUT);
-    device_handle.write_bulk(endpoint_out, &cbw_data, timeout)?;
+        // now read the data
+        let mut buf: Vec<u8> = Vec::with_capacity(length);
+        buf.resize(length, 0);
+        self.device_handle
+            .read_bulk(self.endpoint_in, &mut buf, self.timeout)?;
 
-    // now write the data for the value
-    device_handle.write_bulk(endpoint_out, &bulk_data, timeout)?;
+        // issue CBS block
+        self.send_status_block_wrapper()?;
 
-    // issue CBS block
-    send_status_block_wrapper(device_handle, endpoint_in, timeout)?;
+        // transform data into required data
+        let result: T = bincode_options
+            .with_fixint_encoding()
+            .deserialize(&buf)
+            .unwrap();
+        return Ok(result);
+    }
 
-    return Ok(());
-}
+    pub fn write_command<T: Serialize, O: bincode::config::Options>(
+        &mut self,
+        command: &[u8; 16],
+        value: T,
+        data: &[u8],
+        bincode_options: O,
+    ) -> Result<()> {
+        // transform the value into data
+        let mut value_data: Vec<u8> = bincode_options
+            .with_fixint_encoding()
+            .serialize(&value)
+            .unwrap();
+        // combine this with any additional data
+        let mut bulk_data: Vec<u8> = Vec::new();
+        bulk_data.append(&mut value_data);
+        bulk_data.extend_from_slice(data);
 
-pub fn send_status_block_wrapper(
-    device_handle: &mut DeviceHandle<GlobalContext>,
-    endpoint_in: u8,
-    timeout: Duration,
-) -> Result<CommandStatusWrapper> {
-    let mut csb_data: [u8; 13] = [0; 13];
-    loop {
-        match device_handle.read_bulk(endpoint_in, &mut csb_data, timeout) {
-            Ok(_size) => {
-                return Ok(bincode::options()
-                    .with_fixint_encoding()
-                    .deserialize::<CommandStatusWrapper>(&csb_data)
-                    .unwrap());
+        // issue CBW block
+        let cbw_data = &get_command_block_wrapper(command, bulk_data.len() as u32, Direction::OUT);
+        self.device_handle
+            .write_bulk(self.endpoint_out, &cbw_data, self.timeout)?;
+
+        // now write the data for the value
+        self.device_handle
+            .write_bulk(self.endpoint_out, &bulk_data, self.timeout)?;
+
+        // issue CBS block
+        self.send_status_block_wrapper()?;
+
+        return Ok(());
+    }
+
+    fn send_status_block_wrapper(&mut self) -> Result<CommandStatusWrapper> {
+        let mut csb_data: [u8; 13] = [0; 13];
+        loop {
+            match self
+                .device_handle
+                .read_bulk(self.endpoint_in, &mut csb_data, self.timeout)
+            {
+                Ok(_size) => {
+                    return Ok(bincode::options()
+                        .with_fixint_encoding()
+                        .deserialize::<CommandStatusWrapper>(&csb_data)
+                        .unwrap());
+                }
+                Err(error) => match error {
+                    Error::Pipe => {
+                        self.device_handle.clear_halt(self.endpoint_in).unwrap();
+                        continue;
+                    }
+                    _ => {
+                        return Err(error);
+                    }
+                },
             }
-            Err(error) => match error {
-                Error::Pipe => {
-                    device_handle.clear_halt(endpoint_in).unwrap();
-                    continue;
-                }
-                _ => {
-                    return Err(error);
-                }
-            },
         }
     }
 }
