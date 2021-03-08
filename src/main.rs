@@ -30,6 +30,17 @@ const DPY_AREA_CMD: [u8; 16] = [
     0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
+pub enum Mode {
+    INIT = 0,
+    DU,
+    GC16,
+    GL16,
+    GLR16,
+    GLD16,
+    A2,
+    DU4,
+}
+
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct SystemInfo {
@@ -59,6 +70,7 @@ pub struct Inquiry {
     ignore_end: [u8; 4],
 }
 
+// maybe this should contain i32 not u32?
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Area {
@@ -69,6 +81,7 @@ pub struct Area {
     h: u32,
 }
 
+// maybe this should contain i32 not u32?
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct DisplayArea {
@@ -207,10 +220,23 @@ fn main() {
     println!("width: {}", system_info.width);
     println!("height: {}", system_info.height);
     println!("mode: {}", system_info.mode_no);
+    println!("version: {}", system_info.version);
 
     println!("Display data");
     let img = image::open("kitten.jpg").unwrap();
     let grayscale_image = img.grayscale();
+
+    // it8951.update_region(&system_info, &[], 0, 0, 0).unwrap();
+
+    // 0 INIT: works - whole screen blanks
+    // 1 DU:
+    // 2: GC16: partial update, greyscale
+    // 3: GL16
+    // 4: GLR16
+    // 5: GLD16
+    // 6: DU4: 4 gray times
+    // 7: A2: 2 bit pictures
+
     it8951
         .update_region(&system_info, &grayscale_image, 0, 0, 2)
         .unwrap();
