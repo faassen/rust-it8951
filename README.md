@@ -11,7 +11,7 @@ Braam in C](https://blog.brixit.nl/epaper/), and his solution inspired mine.
 One drawback of Martijn Braam's solution is that it requires root access as it
 uses a specific Linux ioctl command to send data to the epaper display.
 
-Martijn Braam links to a [pIT8951 USB Programming
+Martijn Braam links to a [IT8951 USB Programming
 Guide](https://www.waveshare.com/w/upload/c/c9/IT8951_USB_ProgrammingGuide_v.0.4_20161114.pdf)
 which gave me the clue that it should be possible to do this directly over USB
 without root access. After quite some digging I've implemented a working
