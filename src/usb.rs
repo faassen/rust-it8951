@@ -36,14 +36,14 @@ pub struct CommandStatusWrapper {
 
 static TAG: AtomicU32 = AtomicU32::new(1);
 
-pub struct ScsiOverUsbConnection<'a> {
-    pub device_handle: &'a mut DeviceHandle<GlobalContext>,
+pub struct ScsiOverUsbConnection {
+    pub device_handle: DeviceHandle<GlobalContext>,
     pub endpoint_out: u8,
     pub endpoint_in: u8,
     pub timeout: Duration,
 }
 
-impl<'a> ScsiOverUsbConnection<'a> {
+impl ScsiOverUsbConnection {
     pub fn read_command<T: serde::de::DeserializeOwned, O: bincode::config::Options>(
         &mut self,
         command: &[u8; 16],

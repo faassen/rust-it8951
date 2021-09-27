@@ -5,7 +5,6 @@ use rusb::{DeviceHandle, GlobalContext, Result};
 use serde::{Deserialize, Serialize};
 use std::mem;
 use std::str;
-use std::thread;
 use std::time::Duration;
 
 pub mod usb;
@@ -62,12 +61,18 @@ pub struct SystemInfo {
 
 #[repr(C)]
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct Inquiry {
+pub struct CInquiry {
     ignore_start: [u8; 8],
     pub vendor: [u8; 8],
     pub product: [u8; 16],
     pub revision: [u8; 4],
     ignore_end: [u8; 4],
+}
+
+pub struct Inquiry {
+    pub vendor: String,
+    pub product: String,
+    pub revision: String,
 }
 
 // maybe this should contain i32 not u32?
@@ -100,15 +105,47 @@ pub fn open_it8951() -> Option<DeviceHandle<GlobalContext>> {
     open_device_with_vid_pid(0x48d, 0x8951)
 }
 
-pub struct It8951<'a> {
-    pub connection: usb::ScsiOverUsbConnection<'a>,
+pub struct It8951 {
+    pub connection: usb::ScsiOverUsbConnection,
 }
 
-impl<'a> It8951<'a> {
+impl Drop for It8951 {
+    fn drop(&mut self) {
+        self.connection
+            .device_handle
+            .release_interface(0)
+            .expect("release failed");
+    }
+}
+
+impl It8951 {
+    pub fn connect() -> It8951 {
+        // XXX hardcoded timeout
+        let timeout = Duration::from_millis(1000);
+        let mut device_handle = open_it8951().expect("Cannot open it8951");
+        device_handle
+            .set_auto_detach_kernel_driver(true)
+            .expect("auto detached failed");
+        device_handle.claim_interface(0).expect("claim failed");
+        return It8951 {
+            connection: usb::ScsiOverUsbConnection {
+                device_handle: device_handle,
+                endpoint_out: ENDPOINT_OUT,
+                endpoint_in: ENDPOINT_IN,
+                timeout: timeout,
+            },
+        };
+    }
+
     pub fn inquiry(&mut self) -> Result<Inquiry> {
-        return self
+        let c_inquiry: CInquiry = self
             .connection
-            .read_command(&INQUIRY_CMD, bincode::options());
+            .read_command(&INQUIRY_CMD, bincode::options())?;
+        Ok(Inquiry {
+            vendor: str::from_utf8(&c_inquiry.vendor).unwrap().to_string(),
+            product: str::from_utf8(&c_inquiry.product).unwrap().to_string(),
+            revision: str::from_utf8(&c_inquiry.revision).unwrap().to_string(),
+        })
     }
 
     pub fn get_sys(&mut self) -> Result<SystemInfo> {
