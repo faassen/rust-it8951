@@ -1,25 +1,26 @@
-use rust_it8951::It8951;
+use anyhow;
+use rust_it8951::{It8951, Mode};
 use std::thread;
 use std::time::Duration;
 
-fn main() {
+fn main() -> Result<(), anyhow::Error> {
     println!("Start");
-    let mut it8951 = It8951::connect();
+    let mut it8951 = It8951::connect()?;
 
-    let inquiry_result = it8951.inquiry().unwrap();
+    let inquiry_result = it8951.inquiry()?;
     println!("vendor: {}", inquiry_result.vendor);
     println!("product: {}", inquiry_result.product);
     println!("revision: {}", inquiry_result.revision);
     thread::sleep(Duration::from_millis(100));
     println!("We are now reading data");
-    let system_info = it8951.get_sys().unwrap();
+    let system_info = it8951.get_system_info().unwrap();
     println!("width: {}", system_info.width);
     println!("height: {}", system_info.height);
-    println!("mode: {}", system_info.mode_no);
+    println!("mode: {}", system_info.mode);
     println!("version: {}", system_info.version);
 
     println!("Display data");
-    let img = image::open("kitten.jpg").unwrap();
+    let img = image::open("kitten.jpg")?;
     let grayscale_image = img.grayscale();
 
     // it8951.update_region(&system_info, &[], 0, 0, 0).unwrap();
@@ -33,8 +34,7 @@ fn main() {
     // 6: DU4: 4 gray times
     // 7: A2: 2 bit pictures
 
-    it8951
-        .update_region(&system_info, &grayscale_image, 0, 0, 2)
-        .unwrap();
+    it8951.update_region(&grayscale_image, 0, 0, Mode::GC16)?;
     println!("End");
+    Ok(())
 }
