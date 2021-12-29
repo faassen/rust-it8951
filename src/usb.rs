@@ -53,11 +53,10 @@ impl ScsiOverUsbConnection {
         // issue CBW block
         let cbw_data = &get_command_block_wrapper(command, length as u32, Direction::IN);
         self.device_handle
-            .write_bulk(self.endpoint_out, &cbw_data, self.timeout)?;
+            .write_bulk(self.endpoint_out, cbw_data, self.timeout)?;
 
         // now read the data
-        let mut buf: Vec<u8> = Vec::with_capacity(length);
-        buf.resize(length, 0);
+        let mut buf: Vec<u8> = vec![0; length];
         self.device_handle
             .read_bulk(self.endpoint_in, &mut buf, self.timeout)?;
 
@@ -69,7 +68,7 @@ impl ScsiOverUsbConnection {
             .with_fixint_encoding()
             .deserialize(&buf)
             .unwrap();
-        return Ok(result);
+        Ok(result)
     }
 
     pub fn write_command<T: Serialize, O: bincode::config::Options>(
@@ -92,7 +91,7 @@ impl ScsiOverUsbConnection {
         // issue CBW block
         let cbw_data = &get_command_block_wrapper(command, bulk_data.len() as u32, Direction::OUT);
         self.device_handle
-            .write_bulk(self.endpoint_out, &cbw_data, self.timeout)?;
+            .write_bulk(self.endpoint_out, cbw_data, self.timeout)?;
 
         // now write the data for the value
         self.device_handle
@@ -101,7 +100,7 @@ impl ScsiOverUsbConnection {
         // issue CBS block
         self.send_status_block_wrapper()?;
 
-        return Ok(());
+        Ok(())
     }
 
     fn send_status_block_wrapper(&mut self) -> Result<CommandStatusWrapper> {
@@ -143,9 +142,9 @@ pub fn get_command_block_wrapper(
     let tag = TAG.fetch_add(1, Ordering::SeqCst);
     let cwb = CommandBlockWrapper {
         signature: [0x55, 0x53, 0x42, 0x43],
-        tag: tag,
-        data_transfer_length: data_transfer_length,
-        flags: flags,
+        tag,
+        data_transfer_length,
+        flags,
         logical_unit_number: 0,
         command_length: 16,
         command_data: *command_data,
