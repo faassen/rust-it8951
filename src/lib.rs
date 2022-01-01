@@ -44,6 +44,8 @@ pub enum Mode {
     GLD16,
     DU4, // or swap order?
     A2,
+    /// Don't know what mode it is, but [Waveshare 7.8inch e-Paper HAT](https://www.waveshare.net/wiki/7.8inch_e-Paper_HAT) reports this mode.
+    __UNKNOWN1,
 }
 
 impl fmt::Display for Mode {
@@ -150,22 +152,22 @@ impl It8951 {
         // XXX hardcoded timeout
         let timeout = Duration::from_millis(1000);
         let mut device_handle = open_it8951().expect("Cannot open it8951");
-        device_handle
-            .set_auto_detach_kernel_driver(true)
-            .expect("auto detached failed");
+        if let Err(e) = device_handle.set_auto_detach_kernel_driver(true) {
+            println!("auto detached failed, error is {}", e);
+        }
         device_handle.claim_interface(0).expect("claim failed");
         let mut result = It8951 {
             connection: usb::ScsiOverUsbConnection {
-                device_handle: device_handle,
+                device_handle,
                 endpoint_out: ENDPOINT_OUT,
                 endpoint_in: ENDPOINT_IN,
-                timeout: timeout,
+                timeout,
             },
             system_info: None,
         };
         let system_info = result.get_sys()?;
         result.system_info = Some(system_info);
-        return Ok(result);
+        Ok(result)
     }
 
     /// Make an inquiry.
@@ -191,21 +193,21 @@ impl It8951 {
     }
 
     fn ld_image_area(&mut self, area: Area, data: &[u8]) -> Result<()> {
-        return self.connection.write_command(
+        self.connection.write_command(
             &LD_IMAGE_AREA_CMD,
             area,
             data,
             bincode::options().with_big_endian(),
-        );
+        )
     }
 
     fn dpy_area(&mut self, display_area: DisplayArea) -> Result<()> {
-        return self.connection.write_command(
+        self.connection.write_command(
             &DPY_AREA_CMD,
             display_area,
             &[],
             bincode::options().with_big_endian(),
-        );
+        )
     }
 
     /// Update region of e-paper display.
@@ -234,7 +236,7 @@ impl It8951 {
             }
             self.ld_image_area(
                 Area {
-                    address: address,
+                    address,
                     x,
                     y: y + (i / w) as u32,
                     w: width,
@@ -245,7 +247,7 @@ impl It8951 {
             i += row_height * w;
         }
         self.dpy_area(DisplayArea {
-            address: address,
+            address,
             display_mode: mode,
             x,
             y,
@@ -253,6 +255,6 @@ impl It8951 {
             h: height,
             wait_ready: 1,
         })?;
-        return Ok(());
+        Ok(())
     }
 }

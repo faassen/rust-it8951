@@ -1,9 +1,8 @@
-use anyhow;
 use rust_it8951::{It8951, Mode};
 use std::thread;
 use std::time::Duration;
 
-fn main() -> Result<(), anyhow::Error> {
+fn main() -> anyhow::Result<()> {
     println!("Start");
     let mut it8951 = It8951::connect()?;
 
