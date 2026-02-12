@@ -11,6 +11,6 @@ license = "MIT"
 bincode = "1"
 serde = { version = "1", features = ["derive"] }
 rusb = "0.9"
-image = "0.23"
+image = "0.24.7"
 anyhow = "1"
 
